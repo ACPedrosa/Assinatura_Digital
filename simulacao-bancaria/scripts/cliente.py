@@ -56,6 +56,7 @@ class BankClient:
                     print("ERRO: ao carregar chave, gerando novo par")
                     chave_privada = criar_chave_privada()
                     salvar_chave_privada_arq(chave_privada, nome)
+            print(f"Seja Bem-vindo de volta {nome}")
             action = 'login'
         else:
             print(f"Seja Bem-vindo {nome}, estamos gerando suas chaves")
@@ -72,9 +73,12 @@ class BankClient:
         }
 
         response = self.send_request(request)
-        if response['status'] == 'success':
+        if action == 'register' and response['status'] == 'success':
             self.nome = nome
             print("Usuário registrado com sucesso!")
+        elif action == 'login' and response['status'] == 'success':
+            self.nome = nome
+            print("Usuário logado com sucesso!")
         else:
             print(f'ERRO: Problema no registro: {response['message']}')
 
@@ -112,18 +116,21 @@ class BankClient:
         """ Realizar transaçao """
 
         #Criar transaçao
-        transaction =  json.dumps({
+        transaction = {
             'sender': self.nome,
             'receiver': receiver,
             'amount': amount,
             'date': str(datetime.now()),
-        }).encode()
+        }
+
+        transaction_json = json.dumps(transaction, sort_keys=True)
+        transaction_bytes = transaction_json.encode('utf-8')
         
         padding_config = config_padding()
 
         chave_privada = ler_chave_privada_arq(self.nome)
         
-        signature = assinar_dados(chave_privada, transaction, padding_config)
+        signature = assinar_dados(chave_privada, transaction_bytes, padding_config)
 
         request = {
             'action': 'make_transaction',
@@ -131,13 +138,14 @@ class BankClient:
             'receiver': receiver,
             'amount': amount,
             'date': str(datetime.now()),
-            'signature': signature,
+            'signature': signature.hex(),
+            'transaction': transaction_json,
             'status': 'pending'
         }
 
         response = self.send_request(request)
         if response['status'] == 'success':
-            print("Transação realizada com sucesso!")
+            print(f"{response['message']}")
         else:
             print(f"Erro na transação: {response['message']}")
         return response

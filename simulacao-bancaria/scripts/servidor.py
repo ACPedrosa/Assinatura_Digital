@@ -99,7 +99,7 @@ class BankServer:
         return {'status': 'success', 'users': list(self.users.keys())}
     
     def validate_balance(self, sender, amount):
-        return self.users(sender, {}).get('balance', 0) >=  amount
+        return self.users.get(sender, {}).get('balance', 0) >=  amount
 
     def make_transaction(self, request):
         """ Processa a transaçao """
@@ -109,7 +109,7 @@ class BankServer:
         date = request.get('date')
 
         try:
-            signature = request.get('signature')
+            signature = bytes.fromhex(request.get('signature'))
         except (TypeError, ValueError):
             return {'status': 'error', 'message': 'Formato inválido.'}
         
@@ -130,39 +130,40 @@ class BankServer:
         sender_public_key_pem = base64.b64decode(sender_public_key64)
         sender_public_key = carregar_chave_publica_pem(sender_public_key_pem)
 
+        transaction_json = request.get('transaction')
+        transaction_bytes = transaction_json.encode('utf-8')
 
-        transaction =  json.dumps({
-            'sender': sender,
-            'receiver': receiver,
-            'amount': amount,
-            'date': date,
-        }).encode()
-
-        is_signature_valide = verificar_assinatura(sender_public_key, transaction, signature, config_padding())
+        is_signature_valide = verificar_assinatura(sender_public_key, transaction_bytes, signature, config_padding())
         print(F'Assinatura Valida: {is_signature_valide}')
 
         if not is_signature_valide:
             transaction_data['signature'] = signature.hex()
             transaction_data['status'] = 'reject'
             transaction_data['processed_at'] = datetime.now().isoformat()
+            message = 'Transação não foi válida'
+            self.transactions.append(transaction_data)
+            return {'status': 'error', 'message': message}
 
-        else:
-            if not self.validate_balance(sender, amount):
-                return {'status': 'error', 'message': 'Falta dinheiro'}
-            
-            self.users['sender']['balance'] -= amount
-            self.users['receiver']['balance'] += amount
+        # se a assinatura for válida
+        if not self.validate_balance(sender, amount):
+            return {'status': 'error', 'message': 'Saldo insuficiente'}
 
-            transaction_data['signature'] = signature.hex()
-            transaction_data['status'] = 'accept'
-            transaction_data['processed_at'] = datetime.now().isoformat()
+        self.users[sender]['balance'] -= amount
+        self.users[receiver]['balance'] += amount
+
+        transaction_data['signature'] = signature.hex()
+        transaction_data['status'] = 'accept'
+        transaction_data['processed_at'] = datetime.now().isoformat()
         
+        message = 'Transação realizada com sucesso'
+
         self.transactions.append(transaction_data)
 
-        print(f'Transaç~ao processada: {sender} -> {receiver} - R${amount}')
-        return {'status': 'success', 'message': 'Transaç~ao realizada com sucesso'}
-        
+        print(f'Transação processada: {sender} -> {receiver} - R${amount}')
+        return {'status': 'success', 'message': message}
+
     def get_transactions(self):
+        """ Retorna o historico """
         return {'status': 'success', 'transactions': self.transactions}
 
 if __name__ == "__main__":
